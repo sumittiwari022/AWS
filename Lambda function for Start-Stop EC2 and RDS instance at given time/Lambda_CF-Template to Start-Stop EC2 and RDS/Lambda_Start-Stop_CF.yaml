@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  Resources needed to deploy a scheduled lambda function.
+####################################################################################
+Parameters:
+####################################################################################
+
+  StartScheduled:
+    Default: cron(30 03 ? * MON-FRI *)
+    Description: enter a Schedule expression example cron(0 7 ? * MON-FRI * ) see https://docs.aws.amazon.com/AmazonCloudWatch/latest/events/ScheduledEvents.html ---The default mentioned expression will trigger at 9:00AM IST(3:30AM GMT).
+    Type: String
+  StopScheduled:
+    Default: cron(30 15 ? * MON-FRI *)
+    Description: enter a Schedule expression example cron(0 18 ? * MON-FRI *) see https://docs.aws.amazon.com/AmazonCloudWatch/latest/events/ScheduledEvents.html ---The default mentioned expression will trigger at 9:00PM IST(3:30PM GMT).
+    Type: String
+
+
+####################################################################################
+Resources:
+
+######################## lambda-functions###########################################
+
+  lambdarole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action: sts:AssumeRole
+      #Path: "/service-role/"
+      RoleName: lambda_role
+
+  lambdapolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+     PolicyName: lambda_policy
+     PolicyDocument:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Sid: VisualEditor0
+          Action:
+            - 'ec2:DescribeInstances'
+            - 'ec2:StartInstances'
+            - 'rds:ListTagsForResource'
+            - 'logs:*'
+            - 'rds:DescribeDBInstances'
+            - 'ec2:StopInstances'
+            - 'ec2:DescribeInstances'
+            - 'rds:StopDBInstance'
+            - 'rds:DescribeDBClusters'
+            - 'rds:StartDBInstance'
+            - 'rds:StartDBCluster'
+            - 'rds:StopDBCluster'
+          Resource: '*'
+
+     Roles:
+       - !Ref 'lambdarole'
+
+ 
+
+
+  ec2andrdsstartstop:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      FunctionName: start_stop_lambda
+      Role:
+        Fn::GetAtt:
+          - lambdarole
+          - Arn
+      Code:
+        S3Bucket: your-bucket-name
+        S3Key: filename-with-complete-location.zip
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 30
+     
+
+  startevent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Start-event"
+      EventBusName: "default"
+      Name: start-event
+      ScheduleExpression: !Ref StartScheduled
+      State: "ENABLED"
+      Targets:
+      -
+        Arn:
+          Fn::GetAtt:
+            - "ec2andrdsstartstop"
+            - "Arn"
+        Id: "ec2andrdsstartstop"
+        Input: '{"action":"start"}'
+
+  Permission1ForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: "ec2andrdsstartstop"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn:
+        Fn::GetAtt:
+          - "startevent"
+          - "Arn"
+
+  stopevent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "stop-event"
+      EventBusName: "default"
+      Name: stop-event
+      ScheduleExpression: !Ref StopScheduled
+      State: "ENABLED"
+      Targets:
+      -
+        Arn:
+          Fn::GetAtt:
+            - "ec2andrdsstartstop"
+            - "Arn"
+        Id: "ec2andrdsstartstop"
+        Input: '{"action":"stop"}'
+
+  Permission2ForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: "ec2andrdsstartstop"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn:
+        Fn::GetAtt:
+          - "stopevent"
+          - "Arn"
